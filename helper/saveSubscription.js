@@ -4,11 +4,18 @@ const mysql = require('mysql2');
 const Redis = require('ioredis');
 require('dotenv').config();
 
+// Load environment variables
+const {
+  REDIS_URL,
+  DATABASE_URL,
+  EXTERNAL_API_URL
+} = process.env;
+
 // Create a Redis client
-const redis = new Redis(process.env.REDIS_URL);
+const redis = new Redis(REDIS_URL);
 
 // Connect to the PlanetScale database
-const connection = mysql.createConnection(process.env.DATABASE_URL);
+const connection = mysql.createConnection(DATABASE_URL);
 connection.connect((err) => {
   if (err) {
     console.error('Error connecting to PlanetScale:', err);
@@ -50,7 +57,7 @@ const saveSubscription = async (fbid, subscriptionStatus) => {
     }
 
     // Send a GET request to another server
-    const response = await axios.get('https://aggressive-gray-sari.cyclic.app/api/check');
+    const response = await axios.get(EXTERNAL_API_URL);
 
     console.log('GET request sent to another server:', response.data);
 
