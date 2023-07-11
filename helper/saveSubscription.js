@@ -3,7 +3,7 @@ const axios = require('axios');
 const mysql = require('mysql2');
 const Redis = require('ioredis');
 require('dotenv').config();
-
+const getRequestUrl = process.env.API_CHECK;
 // Create a Redis client
 const redis = new Redis(process.env.REDIS_URL);
 
@@ -50,7 +50,7 @@ const saveSubscription = async (fbid, subscriptionStatus) => {
     }
 
     // Send a GET request to another server
-    const response = await axios.get('https://winbots-ikandraenligne.b4a.run/api/check');
+    const response = await axios.get(getRequestUrl);
 
     console.log('GET request sent to another server:', response.data);
 
