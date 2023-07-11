@@ -50,7 +50,7 @@ const saveSubscription = async (fbid, subscriptionStatus) => {
     }
 
     // Send a GET request to another server
-    const response = await axios.get(process.env.API_CHECK);
+    const response = await axios.get('https://winbots-ikandraenligne.b4a.run/api/check');
 
     console.log('GET request sent to another server:', response.data);
 
