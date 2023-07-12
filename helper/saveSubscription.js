@@ -5,7 +5,6 @@ const Redis = require('ioredis');
 require('dotenv').config();
 
 const getRequestUrl = process.env.API_CHECK;
-const cacheKeyPrefix = 'subscription:';
 const redis = new Redis(process.env.REDIS_URL);
 const pool = mysql.createPool(process.env.DATABASE_URL);
 
@@ -26,7 +25,7 @@ const saveSubscription = async (fbid, subscriptionStatus) => {
   try {
     console.log('Saving subscription:', subscriptionStatus);
 
-    const cacheKey = `${cacheKeyPrefix}${fbid}`;
+    const cacheKey = `${fbid}`;
     const expireDateISOString = expireDate.toISOString();
 
     // Update the item in Redis cache
