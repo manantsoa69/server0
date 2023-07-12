@@ -1,4 +1,5 @@
-//helper/saveSubscription.jsconst axios = require('axios');
+//helper/saveSubscription.js
+const axios = require('axios');
 const mysql = require('mysql2/promise');
 const Redis = require('ioredis');
 require('dotenv').config();
