@@ -1,20 +1,15 @@
-//helper/subscriptionHelper.js
-const mysql = require('mysql2');
+//helper/subscriptionHelper.jsconst mysql = require('mysql2/promise');
 const Redis = require('ioredis');
 require('dotenv').config();
 
-// Create a Redis client
 const redis = new Redis(process.env.REDIS_URL);
-
-// Connect to the PlanetScale database
-const connection = mysql.createConnection(process.env.DATABASE_URL);
+const pool = mysql.createPool(process.env.DATABASE_URL);
 console.log('Connected to PlanetScale!');
 
 const checkSubscription = async (fbid) => {
   try {
     console.log('Checking subscription for FBID:', fbid);
 
-    // Check if the FBID exists in the Redis cache
     const cacheItem = await redis.get(fbid);
     if (cacheItem) {
       console.log('Subscription found in cache for FBID:', fbid);
@@ -32,35 +27,40 @@ const checkSubscription = async (fbid) => {
       };
     }
 
-    // Fetch the subscription from the MySQL database
-    const [result] = await connection.promise().query('SELECT * FROM users WHERE fbid = ?', [fbid]);
-    const subscriptionItem = result[0];
+    const connection = await pool.getConnection();
 
-    if (!subscriptionItem || !subscriptionItem.expireDate) {
-      return {
-        subscriptionStatus: 'No subscription',
-        expireDate: null
-      };
-    }
+    try {
+      const [result] = await connection.query('SELECT * FROM users WHERE fbid = ?', [fbid]);
+      const subscriptionItem = result[0];
 
-    const currentDate = new Date();
-    const expireDate = new Date(subscriptionItem.expireDate);
+      if (!subscriptionItem || !subscriptionItem.expireDate) {
+        return {
+          subscriptionStatus: 'No subscription',
+          expireDate: null
+        };
+      }
 
-    if (expireDate > currentDate) {
-      return {
-        subscriptionStatus: 'A',
-        expireDate: expireDate.toISOString()
-      };
-    } else {
-      await Promise.all([
-        connection.promise().query('UPDATE users SET expireDate = ? WHERE fbid = ?', ['E', fbid]),
-        redis.set(fbid, 'E')
-      ]);
+      const currentDate = new Date();
+      const expireDate = new Date(subscriptionItem.expireDate);
 
-      return {
-        subscriptionStatus: 'E',
-        expireDate: 'E'
-      };
+      if (expireDate > currentDate) {
+        return {
+          subscriptionStatus: 'A',
+          expireDate: expireDate.toISOString()
+        };
+      } else {
+        await Promise.all([
+          connection.query('UPDATE users SET expireDate = ? WHERE fbid = ?', ['E', fbid]),
+          redis.set(fbid, 'E')
+        ]);
+
+        return {
+          subscriptionStatus: 'E',
+          expireDate: 'E'
+        };
+      }
+    } finally {
+      connection.release();
     }
   } catch (error) {
     console.error('Error occurred while checking subscription:', error);
