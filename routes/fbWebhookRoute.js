@@ -1,14 +1,11 @@
-// routes/fbWebhookRoute.js
-const express = require('express');
+// routes/fbWebhookRoute.jsconst express = require('express');
 const router = express.Router();
 const { checkSubscription } = require('../helper/subscriptionHelper');
-// const { saveFbId } = require('../helper/dbHelper');
 const { sendMessage } = require('../helper/messengerApi');
 const { chatCompletion } = require('../helper/openaiApi');
-const { calculateExpirationDate } = require('../helper/expireDateCalculator');
 const { saveSubscription } = require('../helper/saveSubscription');
 const axios = require('axios');
-const { checkNumber } = require('../routes/numberValidation');
+const { checkNumber } = require('./numberValidation');
 
 router.post('/', async (req, res) => {
   try {
@@ -34,7 +31,7 @@ router.post('/', async (req, res) => {
       console.log('Number validation message sent.');
 
       // Exit the request handling
-      return res.status(200).send('OK');
+      return res.sendStatus(200);
     }
 
     // Message is not a number, proceed with subscription and chat logic
@@ -98,20 +95,19 @@ router.post('/', async (req, res) => {
     console.error('Error occurred:', error);
   }
 
-  res.status(200).send('OK');
+  res.sendStatus(200);
 });
 
 router.get('/', (req, res) => {
-  let mode = req.query['hub.mode'];
-  let token = req.query['hub.verify_token'];
-  let challenge = req.query['hub.challenge'];
-  if (mode && token) {
-    if (mode === 'subscribe' && token === process.env.VERIFY_TOKEN) {
-      console.log('WEBHOOK_VERIFIED');
-      res.status(200).send(challenge);
-    } else {
-      res.sendStatus(403);
-    }
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode && token && mode === 'subscribe' && token === process.env.VERIFY_TOKEN) {
+    console.log('WEBHOOK_VERIFIED');
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
   }
 });
 
