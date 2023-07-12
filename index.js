@@ -1,5 +1,4 @@
 //index.js
-
 require('dotenv').config();
 const Redis = require('ioredis');
 const express = require('express');
@@ -8,7 +7,6 @@ const utcPlugin = require('dayjs/plugin/utc');
 const timezonePlugin = require('dayjs/plugin/timezone');
 const frLocale = require('dayjs/locale/fr');
 const responseTime = require('response-time');
-const morgan = require('morgan');
 const winston = require('winston');
 
 const { saveSubscription } = require('./helper/saveSubscription');
@@ -25,43 +23,38 @@ const logger = winston.createLogger({
     winston.format.timestamp(),
     winston.format.simple()
   ),
-  transports: [
-    new winston.transports.Console()
-  ]
+  transports: [new winston.transports.Console()],
 });
 
 const webApp = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-webApp.use((req, res, next) => {
-  const start = process.hrtime(); // Get the current time before handling the request
-  res.on('finish', () => {
-    const end = process.hrtime(start); // Get the time after the response is sent
-    const duration = Math.round((end[0] * 1000) + (end[1] / 1000000)); // Calculate the duration in milliseconds
-    logger.info(`Response time: ${duration}ms`);
-  });
-  next();
-});
-
-webApp.use(morgan('dev')); // Log requests to the console
-webApp.use(responseTime()); // Add response time header to the response
 webApp.use(express.urlencoded({ extended: true }));
 webApp.use(express.json());
 
-// Logging middleware
-webApp.use((req, res, next) => {
+const startResponseTimer = (req, res, next) => {
+  const start = process.hrtime();
+  res.on('finish', () => {
+    const end = process.hrtime(start);
+    const duration = Math.round((end[0] * 1000) + (end[1] / 1000000));
+    logger.info(`Response time: ${duration}ms`);
+  });
+  next();
+};
+
+const logRequest = (req, res, next) => {
   logger.info(`Path ${req.path} with Method ${req.method}`);
   next();
-});
+};
 
-// Routes
+webApp.use(startResponseTimer);
+webApp.use(logRequest);
+
 const homeRoute = require('./routes/homeRoute');
 const fbWebhookRoute = require('./routes/fbWebhookRoute');
 webApp.use('/', homeRoute.router);
 webApp.use('/facebook', fbWebhookRoute.router);
 
-// Subscribe endpoint
 webApp.post('/subscribe', async (req, res, next) => {
   try {
     const { fbid, subscriptionStatus } = req.body;
@@ -70,7 +63,7 @@ webApp.post('/subscribe', async (req, res, next) => {
 
     const startDate = dayjs().utcOffset('+03:00').format('D MMMM YYYY, HH:mm:ss');
 
-    const expireDate = calculateExpirationDate(subscriptionStatus); // Calculate the expiration date
+    const expireDate = calculateExpirationDate(subscriptionStatus);
 
     const success = await saveSubscription(fbid, subscriptionStatus);
 
@@ -78,10 +71,8 @@ webApp.post('/subscribe', async (req, res, next) => {
       logger.info('Subscription activated successfully.');
       res.status(200).json({ message: 'Subscription activated successfully.' });
 
-      // Convert the expiration date to Madagascar's local time
       const madagascarTime = dayjs(expireDate).utcOffset('+03:00').format('D MMMM YYYY, HH:mm:ss');
 
-      // Create a message with plan details including start date ${firstName}
       const messageParts = [
         'Félicitations ! 🎉 Votre abonnement a été activé avec succés. Nous sommes ravis de vous présenter les détails de votre souscription :',
         `Type d'abonnement: ${subscriptionStatus}`,
@@ -91,7 +82,7 @@ webApp.post('/subscribe', async (req, res, next) => {
       ];
       const message = messageParts.join('\n');
 
-      await sendMessage(fbid, message); // Send the message to the user
+      await sendMessage(fbid, message);
     } else {
       logger.error('Failed to activate subscription.');
       res.status(500).json({ message: 'Failed to activate subscription.' });
@@ -102,7 +93,6 @@ webApp.post('/subscribe', async (req, res, next) => {
   }
 });
 
-// Send message endpoint
 webApp.post('/send_message', async (req, res, next) => {
   try {
     const { fbid, message = 'Try again' } = req.body;
@@ -124,7 +114,6 @@ webApp.post('/send_message', async (req, res, next) => {
   }
 });
 
-// Error handling middleware
 webApp.use((err, req, res, next) => {
   logger.error('An error occurred:', err);
   res.status(500).json({ error: 'Internal Server Error' });
@@ -133,3 +122,4 @@ webApp.use((err, req, res, next) => {
 webApp.listen(PORT, () => {
   logger.info(`Server is up and running at ${PORT}`);
 });
+
