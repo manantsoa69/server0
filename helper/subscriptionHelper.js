@@ -1,5 +1,5 @@
-//helper/subscriptionHelper.jsconst 
-mysql = require('mysql2/promise');
+//helper/subscriptionHelper.js
+const mysql = require('mysql2/promise');
 const Redis = require('ioredis');
 require('dotenv').config();
 
