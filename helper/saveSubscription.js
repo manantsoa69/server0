@@ -1,19 +1,12 @@
-//helper/saveSubscription.js
-const axios = require('axios');
-const mysql = require('mysql2');
+//helper/saveSubscription.jsconst axios = require('axios');
+const mysql = require('mysql2/promise');
 const Redis = require('ioredis');
 require('dotenv').config();
-const getRequestUrl = process.env.API_CHECK;
-// Create a Redis client
-const redis = new Redis(process.env.REDIS_URL);
 
-// Connect to the PlanetScale database
-const connection = mysql.createConnection(process.env.DATABASE_URL);
-connection.connect((err) => {
-  if (err) {
-    console.error('Error connecting to PlanetScale:', err);
-  }
-});
+const getRequestUrl = process.env.API_CHECK;
+const cacheKeyPrefix = 'subscription:';
+const redis = new Redis(process.env.REDIS_URL);
+const pool = mysql.createPool(process.env.DATABASE_URL);
 
 const { calculateExpirationDate } = require('../helper/expireDateCalculator');
 
@@ -32,21 +25,29 @@ const saveSubscription = async (fbid, subscriptionStatus) => {
   try {
     console.log('Saving subscription:', subscriptionStatus);
 
-    const cacheKey = `${fbid}`;
+    const cacheKey = `${cacheKeyPrefix}${fbid}`;
+    const expireDateISOString = expireDate.toISOString();
 
     // Update the item in Redis cache
-    await redis.set(cacheKey, expireDate.toISOString());
+    await redis.set(cacheKey, expireDateISOString);
 
-    // Check if the FBID already exists in the MySQL database
-    const [existingItem] = await connection.promise().query('SELECT fbid, expireDate FROM users WHERE fbid = ?', [fbid]);
-    if (existingItem.length > 0) {
-      // Update the expiration date for expired subscriptions in MySQL
-      await connection.promise().query('UPDATE users SET expireDate = ? WHERE fbid = ?', [expireDate.toISOString(), fbid]);
-      console.log('Subscription updated in MySQL:', subscriptionStatus);
-    } else {
-      // Insert the new item into the MySQL database
-      await connection.promise().query('INSERT INTO users (fbid, expireDate) VALUES (?, ?)', [fbid, expireDate.toISOString()]);
-      console.log('Subscription saved in MySQL:', subscriptionStatus);
+    const connection = await pool.getConnection();
+
+    try {
+      // Check if the FBID already exists in the MySQL database
+      const [existingItem] = await connection.query('SELECT fbid, expireDate FROM users WHERE fbid = ?', [fbid]);
+
+      if (existingItem.length > 0) {
+        // Update the expiration date for expired subscriptions in MySQL
+        await connection.query('UPDATE users SET expireDate = ? WHERE fbid = ?', [expireDateISOString, fbid]);
+        console.log('Subscription updated in MySQL:', subscriptionStatus);
+      } else {
+        // Insert the new item into the MySQL database
+        await connection.query('INSERT INTO users (fbid, expireDate) VALUES (?, ?)', [fbid, expireDateISOString]);
+        console.log('Subscription saved in MySQL:', subscriptionStatus);
+      }
+    } finally {
+      connection.release();
     }
 
     // Send a GET request to another server
