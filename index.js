@@ -1,68 +1,62 @@
-// index.js
 const express = require('express');
-const responseTime = require('response-time');
-const compression = require('compression'); // Import the compression middleware
+const path = require('path');
+const Redis = require('ioredis');
+const dotenv = require('dotenv');
+dotenv.config();
+const { getStoredNumbers } = require('./redis');
 
+const homeRoute = require('./routes/homeRoute');
 
-require('dotenv').config();
 const webApp = express();
 const PORT = process.env.PORT || 3000;
-const startResponseTimer = (req, res, next) => {
-  const start = process.hrtime();
-  res.on('finish', () => {
-    const end = process.hrtime(start);
-    const duration = Math.round((end[0] * 1000) + (end[1] / 1000000));
-    console.log(`${duration}ms`);
-  });
-  next();
-};
 
-// Use the compression middleware to enable Gzip compression
-webApp.use(compression());
+// Redis Setup
+const redisUrl = process.env.NUB_SAVE || '';
+const redisClient = new Redis(redisUrl);
+redisClient.on('connect', () => console.log('Connected to upstash'));
+redisClient.on('error', error => console.error('Error connecting to Redis:', error));
 
-webApp.use(responseTime());
-webApp.use(startResponseTimer);
+
+webApp.use(express.static(path.join(__dirname, 'public')));
 webApp.use(express.urlencoded({ extended: true }));
 webApp.use(express.json());
 
-// Load the environment variables for the Production environment
-if (process.env.NODE_ENV === 'production') {
-  const numCPUs = require('os').cpus().length;
 
-  pm2.connect((err) => {
-    if (err) {
-      console.error('PM2 connection error:', err.stack || err);
-      process.exit(1);
-    }
 
-    pm2.start(
-      {
-        script: 'index.js',
-        instances: numCPUs, // Number of instances (cluster mode will use all CPU cores)
-        exec_mode: 'cluster', // Run the application in cluster mode
-        max_memory_restart: '200M', // Max memory allowed for each instance
-      },
-      (err) => {
-        if (err) {
-          console.error('PM2 start error:', err.stack || err);
-          pm2.disconnect();
-          process.exit(1);
-        }
+// Error Handling Middleware
+webApp.use((err, req, res, next) => {
+  console.error('An error occurred:', err);
+  res.status(500).json({ error: 'Internal Server Error' });
+});
 
-        console.log(`Server is up and running at ${PORT} using PM2 in cluster mode.`);
-        pm2.disconnect();
-      }
-    );
-  });
-}
-
-// Load other routes and middlewares
 const fbWebhookRoute = require('./routes/fbWebhookRoute');
-const homeRoute = require('./routes/homeRoute');
-
 webApp.use('/facebook', fbWebhookRoute.router);
-webApp.use('/', homeRoute.router);
+webApp.use('/subscribe', homeRoute.router);
 
+// Query Route
+webApp.get('/query', async (req, res) => {
+  try {
+    const numberToQuery = req.query.number || '';
+
+    // Assuming the getStoredNumbers() function returns an array of items from Redis
+    const items = await getStoredNumbers(numberToQuery);
+
+    // Delete the data from Redis after querying
+    await Promise.all(
+      items.map(async (item) => {
+        const key = item.number; // Assuming the "number" field is used as the Redis key
+        await redisClient.del(key);
+      })
+    );
+
+    res.json({ numberToQuery, items });
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
+// Start the Server
 webApp.listen(PORT, () => {
   console.log(`Server is up and running at ${PORT}`);
 });
