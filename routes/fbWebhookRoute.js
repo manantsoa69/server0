@@ -1,80 +1,70 @@
-// routes/fbWebhookRoute.js
 const express = require('express');
+const axios = require('axios');
 const router = express.Router();
+const { getStoredNumbers, deleteDataFromRedis } = require('../redis');
+const { sendMessageA } = require('../helper/messengerApi');
 const { saveSubscription } = require('../helper/saveSubscription');
-const { checkSubscription } = require('../helper/subscriptionHelper');
-const { sendMessage } = require('../helper/messengerApi');
-const { chatCompletion } = require('../helper/openaiApi');
-const { checkNumber } = require('./numberValidation');
+const { activateSubscription } = require('../helper/activeSub');
 
-// Handle POST requests for incoming messages
 router.post('/', async (req, res) => {
   try {
     const { entry } = req.body;
-    const { sender: { id: senderId }, message: { text: query } } = entry[0].messaging[0];
-    console.log(`${senderId}`);
 
-    // Check if the message is a number
-    if (/^\d+$/.test(query)) {
-      const numberValidationResult = await checkNumber(query, senderId);
-      await sendMessage(senderId, numberValidationResult);
-      console.log('Number message sent:', numberValidationResult);
-      return res.sendStatus(200);
-    }
+    if (entry && entry.length > 0 && entry[0].messaging && entry[0].messaging.length > 0) {
+      const { sender: { id: senderId }, message } = entry[0].messaging[0];
 
-    const { subscriptionStatus, expireDate } = await checkSubscription(senderId);
-    if (subscriptionStatus === 'No subscription') {
-      const newSubscriptionStatus = '10M';
-      const saved = await saveSubscription(senderId, newSubscriptionStatus);
+      if (message && message.text) {
+        let { text: query } = message;
+        console.log(`Received message from senderId: ${senderId}`);
 
-      if (saved) {
-        console.log('Saved successfully.');
-        await sendMessage(
-          senderId,
-          `Félicitations ! 🎉 Vous avez remporté un abonnement gratuit de 10 minutes pour découvrir notre chatbot, Win.
-          
-   Profitez de cette expérience unique et laissez-moi répondre à vos questions et vous offrir une assistance personnalisée.😉`
-        );
-      } else {
-        console.log('Failed to save.');
-        await sendMessage(
-          senderId,
-          'Désolé, une erreur s\'est produite lors du traitement de votre abonnement. Veuillez réessayer ultérieurement.'
-        );
+        if (query.toLowerCase().startsWith('03')) {
+          let numberToQuery = query;
+
+          const items = await getStoredNumbers(numberToQuery);
+          console.log(`Result: ${items}`);
+
+          if (items.length === 0) {
+            await sendMessageA(senderId, 'No matching data found for the specified number.');
+          } else {
+            const firstItem = items[0];
+            const { number, fbid, receivedate } = firstItem;
+
+            // Send response message
+            let responseMessage = `Query result for number ${number}:\n`;
+            responseMessage += `FB ID: ${fbid}\n`;
+            responseMessage += `Received Date: ${receivedate}\n`;
+
+            await sendMessageA(senderId, responseMessage);
+            await sendMessageA(senderId, `sub ${fbid} 1M ${numberToQuery}`);
+            await sendMessageA(senderId, `sub ${fbid} 1W ${numberToQuery}`);
+
+            // Call the Redis delete function after data is saved
+            await deleteDataFromRedis(numberToQuery);
+          }
+        } else if (query.toLowerCase().startsWith('sub')) {
+          const [_, fbid, subscriptionStatus, paymentNumber ] = query.split(' ');
+
+   
+
+          try {
+            const resut = await saveSubscription (fbid, subscriptionStatus, paymentNumber );
+            console.log(resut);
+            await sendMessageA(senderId, 'Subscribed successfully!');
+          } catch (error) {
+            console.error('Error subscribing user:', error);
+            await sendMessageA(senderId, 'Failed to subscribe.');
+          }
+        }
       }
-    } else if (subscriptionStatus === 'E') {
-      await sendMessage(
-        senderId,
-        `
-        📢 Votre abonnement a expiré. Afin de continuer à bénéficier des services de notre chatbot, nous vous invitons à renouveler votre abonnement.
-
-        Détails du renouvellement :
-        Prix : 9900 ariary 💰
-        Durée : 1 mois (24h/24) ⏰
-
-        Moyens de paiement acceptés :
-        Mvola : 0330540967
-        Airtel Money : 0332044955
-        Orange Money : 0323232224
-        (Tous les comptes sont au nom de RAZAFIMANANTSOA Jean Marc.)
-
-        Une fois le paiement effectué, veuillez nous fournir votre numéro (10 chiffres) pour la vérification.📲`
-      );
-      console.log('Expired subscription.');
-    } else {
-      const result = await chatCompletion(query, senderId);
-      await sendMessage(senderId, result.response);
-      console.log('Message sent successfully.');
     }
-  } catch (error) {
-    console.error('Error occurred:', error);
-  }
 
-  res.sendStatus(200);
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('Error handling Facebook webhook:', error);
+    res.sendStatus(500);
+  }
 });
 
-
-// Handle GET requests for verification
 router.get('/', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
